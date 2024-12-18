@@ -1,0 +1,32 @@
+cstv_advertisement.ad_play_count:
+  js:
+    js/ad_play_count.js: { }
+  dependencies:
+    - core/drupal
+    - core/jquery
+    - core/drupalSettings
+    - core/jquery.once
+
+cstv_advertisement.dragtable:
+  js:
+    js/jquery-ui-min.js: {}
+    js/jquery.dragtable.js: { }
+  css:
+    theme:
+      css/dragtable.css: {}
+  dependencies:
+    - core/drupal
+    - core/jquery
+    - core/drupalSettings
+    - core/jquery.once
+
+cstv_advertisement.advertiser:
+  js:
+    js/advertiser.js: { }
+  dependencies:
+    - core/drupal
+    - core/jquery
+    - core/drupalSettings
+    - core/jquery.once
+    - core/drupal.dialog.ajax # Required for dialogs
+    - core/jquery.form # If you also want to use Ajax for form operations

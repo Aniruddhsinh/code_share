@@ -1,0 +1,687 @@
+<?php
+
+/**
+ * @file
+ * Custom features based on the requirement.
+ */
+
+use Drupal\node\NodeInterface;
+use Drupal\views\ViewExecutable;
+use Drupal\views\Plugin\views\query\QueryPluginBase;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Entity\Display\EntityFormDisplayInterface;
+use Drupal\node\Entity\Node;
+use Drupal\Core\Url;
+
+/**
+ * @file
+ * Implementing our hooks.
+ */
+
+/**
+ * Implements hook_theme().
+ */
+function example_theme($existing, $type, $theme, $path) {
+  return [
+    'advertiser_campaigns_list_form' => [
+      'render element' => 'form',
+    ],
+  ];
+}
+
+/**
+ * Implements hook_views_pre_view().
+ */
+function example_views_query_alter(ViewExecutable $view, QueryPluginBase $query) {
+  // Get the current logged in user campaigns and return dropdown list.
+  if ($view->id() == 'campaign_dropdown') {
+    // Traverse through the 'where' part of the query.
+    $currentUser = \Drupal::currentUser();
+    if (!$currentUser->hasPermission('administer site configuration')) {
+      $advertiser_service = \Drupal::service('example.advertiser_contract');
+      $campaign_list = $advertiser_service->getCampaignIds();
+      foreach ($query->where as &$condition_group) {
+        foreach ($condition_group['conditions'] as &$condition) {
+          // If this is the part of the query filtering on title, change the
+          // condition to filter on node ID.
+          if ($condition['field'] == 'node_field_data.nid') {
+            $condition = [
+              'field' => 'node_field_data.nid',
+              'value' => $campaign_list,
+              'operator' => 'IN',
+            ];
+          }
+        }
+      }
+    }
+  }
+  // Get the current logged in user ads and return dropdown list.
+  if ($view->id() == 'ads_dropdown') {
+    // Traverse through the 'where' part of the query.
+    $currentUser = \Drupal::currentUser();
+    if (!$currentUser->hasPermission('administer site configuration')) {
+      $advertiser_service = \Drupal::service('example.advertiser_contract');
+      $get_campaign = \Drupal::request()->query->get('campaign');
+      $campaign_id = !empty($get_campaign) ? $get_campaign : [];
+      $ads_list = $advertiser_service->getAdIds($campaign_id);
+      foreach ($query->where as &$condition_group) {
+        foreach ($condition_group['conditions'] as $key => &$condition) {
+          // If this is the part of the query filtering on title, change the
+          // condition to filter on node ID.
+          if (empty($ads_list)) {
+            if ($condition['field'] == 'node_field_data.nid') {
+              unset($condition_group['conditions'][$key]);
+            }
+          }
+          else {
+            if ($condition['field'] == 'node_field_data.nid') {
+              $condition = [
+                'field' => 'node_field_data.nid',
+                'value' => $ads_list,
+                'operator' => 'IN',
+              ];
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function example_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+
+  /** @var \Drupal\Core\Entity\Entity\EntityFormDisplay $formDisplay */
+
+  if (array_key_exists("form_display", $form_state->getStorage())) {
+    $form_display = $form_state->getStorage()['form_display'];
+  }
+  // Alteration for ad_related_products node add/edit form for advertiser user role.
+  if (($form_id == 'node_ad_related_products_form' || $form_id == "node_ad_related_products_edit_form") && $form_display->getMode() == 'advertiser') {
+    $form['actions']['back'] = [
+      '#type' => 'markup',
+      '#markup' => '<a class="back-button" href="/advertiser/campaigns">Back</a>',
+    ];
+    $form['actions']['delete']['#attributes']['class'][] = 'hidden';
+    $node = \Drupal::routeMatch()->getParameter('node');
+    if ($node instanceof NodeInterface) {
+      // You can get nid and anything else you need from the node object.
+      $delete_url = Url::fromRoute('custom_node_delete_modal.form', ['node' => $node->id()]);
+      $form['actions']['delete_confirm'] = [
+        '#type' => 'link',
+        '#title' => t('Delete'),
+        '#url' => $delete_url,
+        '#ajax' => [
+          'dialogType' => 'modal',
+          'dialog' => ['height' => 215, 'width' => 700],
+          'data-dialog-type' => 'dialog',
+          'data-dialog-renderer' => 'off_canvas',
+        ],
+        '#attributes' => [
+          'class' => [
+            'button--danger',
+          ],
+        ],
+        '#weight' => '4',
+      ];
+    }
+    // Add custom submit handler.
+    $form['actions']['submit']['#submit'][] = 'example_node_sku_form_submit';
+  }
+
+  // Alteration for Ads node add/edit form for advertiser user role.
+  if (($form_id == 'node_ads_form' || $form_id == "node_ads_edit_form") && $form_display->getMode() == 'advertiser') {
+    $advertiser_service = \Drupal::service('example.advertiser_contract');
+    $advertiser_id = $advertiser_service->getAdvertiserId();
+    $form['field_related_products']['widget']['actions']['ief_add']['#value'] = "Create SKU";
+    $form['field_related_products']['widget']['actions']['ief_add_existing']['#value'] = "Search";
+    $form['actions']['back'] = [
+      '#type' => 'markup',
+      '#markup' => '<a class="back-button" href="/advertiser/campaigns">Back</a>',
+    ];
+    $form['field_advertiser']['widget']['#default_value'] = [$advertiser_id];
+    $form['field_advertiser']['widget']['#attributes'] = ['disabled' => 'disabled'];
+    $form['field_advertiser']['#attributes']['class'][] = 'hidden';
+    $form['actions']['delete']['#attributes']['class'][] = 'hidden';
+    $node = \Drupal::routeMatch()->getParameter('node');
+    if ($node instanceof NodeInterface) {
+      // You can get nid and anything else you need from the node object.
+      $delete_url = Url::fromRoute('custom_node_delete_modal.form', ['node' => $node->id()]);
+      $form['actions']['delete_confirm'] = [
+        '#type' => 'link',
+        '#title' => t('Delete'),
+        '#url' => Url::fromRoute('custom_node_delete_modal.form', ['node' => $node->id()]),
+        '#ajax' => [
+          'dialogType' => 'modal',
+          'dialog' => ['height' => 215, 'width' => 700],
+          'data-dialog-type' => 'dialog',
+          'data-dialog-renderer' => 'off_canvas',
+        ],
+        '#attributes' => [
+          'class' => [
+            'button--danger',
+          ],
+        ],
+        '#weight' => '4',
+      ];
+    }
+    // Add custom submit handler.
+    $form['actions']['submit']['#submit'][] = 'example_node_ads_form_submit';
+  }
+
+  // Alteration for Campaign node add/edit form for advertiser user role.
+  if (($form_id == 'node_campaign_form' || $form_id == "node_campaign_edit_form") && $form_display->getMode() == 'advertiser') {
+    if ($form_id == 'node_campaign_form') {
+      $form['#attributes']['class'][] = 'node-campaign-add-form';
+    }
+    $advertiser_service = \Drupal::service('example.advertiser_contract');
+    $advertiser_id = $advertiser_service->getAdvertiserId();
+    $contract_id = $advertiser_service->getContractId();
+    $contract_node = \Drupal::entityTypeManager()->getStorage('node')->load($contract_id);
+    $form['field_campaign_ads']['widget']['actions']['ief_add']['#value'] = "Create";
+    $form['field_campaign_ads']['widget']['actions']['ief_add_existing']['#value'] = "Search";
+    $form['actions']['back'] = [
+      '#type' => 'markup',
+      '#markup' => '<a class="back-button" href="/advertiser/campaigns">Back</a>',
+    ];
+
+    $form['field_campaign_advertiser']['widget']['#default_value'] = [$advertiser_id];
+    $form['field_campaign_advertiser']['widget']['#attributes'] = ['disabled' => 'disabled'];
+    $form['field_campaign_advertiser']['#attributes']['class'][] = 'hidden';
+
+    $form['field_contract']['widget']['#default_value'] = [$contract_id];
+    $form['field_contract']['widget']['#attributes'] = ['disabled' => 'disabled'];
+    $form['field_contract']['#attributes']['class'][] = 'hidden';
+    $form['actions']['delete']['#attributes']['class'][] = 'hidden';
+    $node = \Drupal::routeMatch()->getParameter('node');
+    if ($node instanceof NodeInterface) {
+      // You can get nid and anything else you need from the node object.
+      $delete_url = Url::fromRoute('custom_node_delete_modal.form', ['node' => $node->id()]);
+      $form['actions']['delete_confirm'] = [
+        '#type' => 'link',
+        '#title' => t('Delete'),
+        '#url' => Url::fromRoute('custom_node_delete_modal.form', ['node' => $node->id()]),
+        '#ajax' => [
+          'dialogType' => 'modal',
+          'dialog' => ['height' => 215, 'width' => 700],
+          'data-dialog-type' => 'dialog',
+          'data-dialog-renderer' => 'off_canvas',
+        ],
+        '#attributes' => [
+          'class' => [
+            'button--danger',
+          ],
+        ],
+        '#weight' => '4',
+      ];
+    }
+    // Add custom submit handler.
+    $form['actions']['submit']['#submit'][] = 'example_node_campaign_form_submit';
+  }
+}
+
+/**
+ * Custom submit handler to redirect after form submission.
+ */
+function example_node_ads_form_submit($form, FormStateInterface $form_state) {
+  $form_state->setRedirectUrl(Url::fromUserInput('/advertiser/ads'));
+}
+
+/**
+ * Custom submit handler to redirect after form submission.
+ */
+function example_node_campaign_form_submit($form, FormStateInterface $form_state) {
+  $form_state->setRedirectUrl(Url::fromUserInput('/advertiser/campaigns'));
+}
+
+/**
+ * Custom submit handler to redirect after form submission.
+ */
+function example_node_sku_form_submit($form, FormStateInterface $form_state) {
+  $form_state->setRedirectUrl(Url::fromUserInput('/advertiser/skus'));
+}
+
+/**
+ * Perform alterations before an entity form is included in the IEF widget.
+ *
+ * @param entityform $entity_form
+ *   Nested array of form elements that comprise the entity form.
+ * @param formstate $form_state
+ *   The form state of the parent form.
+ */
+function example_inline_entity_form_entity_form_alter(&$entity_form, &$form_state) {
+
+  if ($entity_form['#form_mode'] == 'advertiser' && $entity_form['#bundle'] == 'ads') {
+    $entity_form['#ief_element_submit'] = array_reverse($entity_form['#ief_element_submit']);
+    // Call the advertisement service and fetch advertiserId.
+    $advertiser_service = \Drupal::service('example.advertiser_contract');
+    $advertiser_id = $advertiser_service->getAdvertiserId();
+    $advertiser_node = \Drupal::entityTypeManager()->getStorage('node')->load($advertiser_id);
+
+    // Set the default value for the advertiser based on current logged in user.
+    $entity_form['field_advertiser']['widget'][0]['target_id']['#default_value'] = $advertiser_node;
+    $entity_form['field_advertiser']['widget'][0]['target_id']['#attributes'] = ['disabled' => 'disabled'];
+    $entity_form['field_advertiser']['widget'][0]['target_id']['#attributes']['class'][] = 'hidden';
+    $entity_form['field_advertiser']['#attributes']['class'][] = 'hidden hide-elemement-display';
+    $entity_form['title']['#attributes']['class'][] = 'hidden hide-elemement-display';
+
+    // Hide related product section from Campaign add/edit page for ads inline entity form.
+    $entity_form['field_related_products']['widget']['#attributes'] = ['disabled' => 'disabled'];
+    $entity_form['field_related_products']['widget']['#attributes']['class'][] = 'hidden';
+  }
+
+  if ($entity_form['#form_mode'] == 'advertiser' && $entity_form['#bundle'] == 'ad_related_products') {
+    $entity_form['title']['#attributes']['class'][] = 'hidden hide-elemement-display';
+    $entity_form['field_product_ad']['#attributes']['class'][] = 'hidden hide-elemement-display';
+  }
+}
+
+/**
+ * Alter the processed build of the group.
+ *
+ * @param array $element
+ *   The element being processed.
+ * @param object $group
+ *   The group info.
+ * @param object $complete_form
+ *   The complete form.
+ */
+function example_field_group_form_process_alter(array &$element, &$group, &$complete_form) {
+  $field_group_label = "";
+  if ($node = \Drupal::routeMatch()->getParameter('node')) {
+    if ($node instanceof NodeInterface) {
+      switch ($node->bundle()) {
+        case 'campaign':
+          $field_group_label = $node->field_campaign_title->value . " Ads";
+          break;
+
+        case 'ads':
+          $field_group_label = $node->field_ad_title->value . " SKUs";
+          break;
+      }
+    }
+  }
+  if (isset($complete_form['#form_id'])) {
+    // Change field_group label for Campaign node edit page ad entity reference section.
+    if ($complete_form['#form_id'] === "node_campaign_edit_form" && $group->mode == "advertiser" && $group->group_name == "group_campaign_ads") {
+      if (!empty($field_group_label)) {
+        $element['#title'] = $field_group_label;
+      }
+    }
+
+    // Change field_group label for Ads node edit page ad_related_product entity reference section.
+    if ($complete_form['#form_id'] === "node_ads_edit_form" && $group->mode == "advertiser" && $group->group_name == "group_attach_skus") {
+      if (!empty($field_group_label)) {
+        $element['#title'] = $field_group_label;
+      }
+    }
+
+  }
+
+}
+
+/**
+ * Implements hook_page_attachments_alter().
+ */
+function example_page_attachments_alter(array &$attachments) {
+  $attachments['#attached']['library'][] = 'example/example.advertiser';
+}
+
+/**
+ * Implements hook_entity_form_display_alter().
+ */
+function example_entity_form_display_alter(EntityFormDisplayInterface &$form_display, array $context) {
+
+  // Advertiser form display for Advertiser user for below content-types.
+  $content_types = [
+    'campaign',
+    'ads',
+    'ad_related_products',
+  ];
+
+  // Check current logged-in user is advertiser and viewing above content-types.
+  if (in_array('advertiser', \Drupal::currentUser()->getRoles()) && $context['entity_type'] === 'node' && in_array($context['bundle'], $content_types)) {
+    // Assign advertiser form mode.
+    $storage = \Drupal::entityTypeManager()->getStorage('entity_form_display');
+    $differentDisplay = $storage->load("{$context['entity_type']}.{$context['bundle']}.advertiser");
+    if ($differentDisplay) {
+      $form_display = $differentDisplay;
+    }
+  }
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_insert().
+ */
+function example_node_insert(Node $node) {
+
+  switch ($node->bundle()) {
+    case 'ad_related_products':
+      example_ad_reference_updates_using_related_products($node);
+      break;
+
+    case 'campaign':
+      example_campaign_reference_updates_using_ads($node);
+      break;
+
+    case 'ads':
+      example_sku_campaign_reference_updates_using_ads($node);
+      break;
+  }
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_update().
+ */
+function example_node_update(Node $node) {
+  switch ($node->bundle()) {
+    case 'ad_related_products':
+      example_ad_reference_updates_using_related_products($node, "update");
+      break;
+
+    case 'campaign':
+      example_campaign_reference_updates_using_ads($node, "update");
+      break;
+
+    case 'ads':
+      example_sku_campaign_reference_updates_using_ads($node, "update");
+      break;
+  }
+}
+
+/**
+ * Method to update SKU(ad_related_products) and campaign reference using ad nodes on their selection to add/edit.
+ */
+function example_sku_campaign_reference_updates_using_ads($node, $node_oprtation = NULL) {
+  $current_ad_nid = $node->id();
+  // Get list of skus(ad_related_products)
+  $selected_skus = $node->get('field_related_products')->referencedEntities();
+  $selected_sku_nids = [];
+  $updated_sku_nids = [];
+  foreach ($selected_skus as $reference_sku) {
+    $selected_sku_nids[] = $reference_sku->id();
+  }
+
+  // Get list of campaigns.
+  $selected_campaigns = $node->get('field_campaign')->referencedEntities();
+  $selected_campaign_nids = [];
+  $updated_campaign_nids = [];
+  foreach ($selected_campaigns as $reference_campaign) {
+    $selected_campaign_nids[] = $reference_campaign->id();
+  }
+  if ($node_oprtation == "update") {
+    // Get list of original references of campaigns.
+    $original_selected_campaigns = $node->original->get('field_campaign')->referencedEntities();
+    $original_selected_campaign_nids = [];
+    foreach ($original_selected_campaigns as $original_reference) {
+      $original_selected_campaign_nids[] = $original_reference->id();
+    }
+    // Get new added campaigns and also the removed campaigns from ad.
+    $new_added_campaigns = array_diff($selected_campaign_nids, $original_selected_campaign_nids);
+    $removed_campaigns = array_diff($original_selected_campaign_nids, $selected_campaign_nids);
+
+    // Remove ad selections from the Campaign that are removed from the original ad selection from campaign field.
+    if (isset($removed_campaigns) && !empty($removed_campaigns)) {
+      foreach ($removed_campaigns as $removed_nid) {
+        $original_campaign_node = \Drupal::entityTypeManager()->getStorage('node')->load($removed_nid);
+        $original_existing_ads = $original_campaign_node->get('field_campaign_ads')->referencedEntities();
+        foreach ($original_existing_ads as $key => $original_ad) {
+          if ($original_ad->id() === $current_ad_nid) {
+            $original_campaign_node->get('field_campaign_ads')->removeItem($key);
+            $original_campaign_node->save();
+          }
+        }
+      }
+    }
+
+    // Add Campaign selections for the ads that are selected from from campaign ads.
+    if (isset($new_added_campaigns) && !empty($new_added_campaigns)) {
+      foreach ($new_added_campaigns as $new_campaign_nid) {
+        // Load the add based on $selected_nid.
+        $new_campaign_node = \Drupal::entityTypeManager()->getStorage('node')->load($new_campaign_nid);
+        // Check the existing ads in the campaigns $new_campaign_nid.
+        $existing_related_ads = $new_campaign_node->get('field_campaign_ads')->referencedEntities();
+        $existing_ad_nids = [];
+        foreach ($existing_related_ads as $existing_ad) {
+          $existing_ad_nids[] = $existing_ad->id();
+        }
+        if (!in_array($current_ad_nid, $existing_ad_nids)) {
+          $new_campaign_node->field_campaign_ads[] = ['target_id' => $current_ad_nid];
+          $new_campaign_node->save();
+        }
+      }
+    }
+
+    // Get list of original references of SKUs.
+    $original_selected_skus = $node->original->get('field_related_products')->referencedEntities();
+    $original_selected_skus_nids = [];
+    foreach ($original_selected_skus as $original_reference) {
+      $original_selected_skus_nids[] = $original_reference->id();
+    }
+    // Get new added campaigns and also the removed campaigns from ad.
+    $new_added_skus = array_diff($selected_sku_nids, $original_selected_skus_nids);
+    $removed_skus = array_diff($original_selected_skus_nids, $selected_sku_nids);
+
+    // Remove ad selections from the Campaign that are removed from the original ad selection from campaign field.
+    if (isset($removed_skus) && !empty($removed_skus)) {
+      foreach ($removed_skus as $removed_nid) {
+        $original_sku_node = \Drupal::entityTypeManager()->getStorage('node')->load($removed_nid);
+        $original_existing_ads = $original_sku_node->get('field_product_ad')->referencedEntities();
+        foreach ($original_existing_ads as $key => $original_ad) {
+          if ($original_ad->id() === $current_ad_nid) {
+            $original_sku_node->get('field_product_ad')->removeItem($key);
+            $original_sku_node->save();
+          }
+        }
+      }
+    }
+
+    // Add Campaign selections for the ads that are selected from from campaign ads.
+    if (isset($new_added_skus) && !empty($new_added_skus)) {
+      foreach ($new_added_skus as $new_sku_nid) {
+        // Load the add based on $selected_nid.
+        $new_sku_node = \Drupal::entityTypeManager()->getStorage('node')->load($new_sku_nid);
+        // Check the existing ads in the campaigns $new_campaign_nid.
+        $existing_related_ads = $new_sku_node->get('field_product_ad')->referencedEntities();
+        $existing_ad_nids = [];
+        foreach ($existing_related_ads as $existing_ad) {
+          $existing_ad_nids[] = $existing_ad->id();
+        }
+        if (!in_array($current_ad_nid, $existing_ad_nids)) {
+          $new_sku_node->field_product_ad[] = ['target_id' => $current_ad_nid];
+          $new_sku_node->save();
+        }
+      }
+    }
+
+  }
+  else {
+    // Add the reference of ads in selected skus(ad_related_products)
+    foreach ($selected_sku_nids as $selected_sku_nid) {
+      $existing_ad_nids = [];
+      $sku_node = \Drupal::entityTypeManager()->getStorage('node')->load($selected_sku_nid);
+      $existing_ad_selection = $sku_node->get('field_product_ad')->referencedEntities();
+      foreach ($existing_ad_selection as $existing_ad) {
+        $existing_ad_nids[] = $existing_ad->id();
+      }
+      if (isset($existing_ad_nids) && !empty($existing_ad_nids)) {
+        if (!in_array($current_ad_nid, $existing_ad_nids)) {
+          $sku_node->field_product_ad[] = ['target_id' => $current_ad_nid];
+          $sku_node->save();
+        }
+      }
+      else {
+        $sku_node->field_product_ad[] = ['target_id' => $current_ad_nid];
+        $sku_node->save();
+      }
+    }
+    // Add the reference of ads in selected campaigns.
+    foreach ($selected_campaign_nids as $selected_campaign_nid) {
+      $existing_ad_nids = [];
+      $campaign_node = \Drupal::entityTypeManager()->getStorage('node')->load($selected_campaign_nid);
+      $existing_ad_selection = $campaign_node->get('field_campaign_ads')->referencedEntities();
+      foreach ($existing_ad_selection as $existing_ad) {
+        $existing_ad_nids[] = $existing_ad->id();
+      }
+      if (isset($existing_ad_nids) && !empty($existing_ad_nids)) {
+        if (!in_array($current_ad_nid, $existing_ad_nids)) {
+          $campaign_node->field_campaign_ads[] = ['target_id' => $current_ad_nid];
+          $campaign_node->save();
+        }
+      }
+      else {
+        $campaign_node->field_campaign_ads[] = ['target_id' => $current_ad_nid];
+        $campaign_node->save();
+      }
+    }
+  }
+}
+
+/**
+ * Method to update campaign reference for ad nodes based on their selection on add/edit.
+ */
+function example_campaign_reference_updates_using_ads($node, $node_oprtation = NULL) {
+  $current_nid = $node->id();
+  $selected_ads = $node->get('field_campaign_ads')->referencedEntities();
+  $selected_ad_nids = [];
+  $updated_ad_nids = [];
+  // Get the list of NIDs from reference field.
+  foreach ($selected_ads as $reference) {
+    $selected_ad_nids[] = $reference->id();
+  }
+
+  if ($node_oprtation == "update") {
+    // Remove the reference of campaign from selected ads.
+    $original_selected_ads = $node->original->get('field_campaign_ads')->referencedEntities();
+    $original_selected_ad_nids = [];
+    foreach ($original_selected_ads as $original_reference) {
+      $original_selected_ad_nids[] = $original_reference->id();
+    }
+    $new_added_ads = array_diff($selected_ad_nids, $original_selected_ad_nids);
+    $removed_ads = array_diff($original_selected_ad_nids, $selected_ad_nids);
+
+    // Remove Campaign selections from the ad that are removed from the original ad selection from campaign ads.
+    if (isset($removed_ads) && !empty($removed_ads)) {
+      foreach ($removed_ads as $removed_nids) {
+        $original_ad_node = \Drupal::entityTypeManager()->getStorage('node')->load($removed_nids);
+        $original_existing_campaigns = $original_ad_node->get('field_campaign')->referencedEntities();
+        foreach ($original_existing_campaigns as $key => $original_campaign) {
+          if ($original_campaign->id() === $current_nid) {
+            $original_ad_node->get('field_campaign')->removeItem($key);
+            $original_ad_node->save();
+          }
+        }
+      }
+    }
+
+    // Add Campaign selections for the ads that are selected from from campaign ads.
+    if (isset($new_added_ads) && !empty($new_added_ads)) {
+      foreach ($new_added_ads as $new_ad_nid) {
+        // Load the add based on $selected_nid.
+        $new_ad_node = \Drupal::entityTypeManager()->getStorage('node')->load($new_ad_nid);
+        // Check the existing campaigns in the ad node $new_ad_nid.
+        $existing_related_campaigns = $new_ad_node->get('field_campaign')->referencedEntities();
+        foreach ($existing_related_campaigns as $existing_campaign) {
+          $existing_campaign_nids[] = $existing_campaign->id();
+        }
+        if (!in_array($current_nid, $existing_campaign_nids)) {
+          $new_ad_node->field_campaign[] = ['target_id' => $current_nid];
+          $new_ad_node->save();
+        }
+      }
+    }
+  }
+  else {
+    // Add the reference of camapaign on ad nodes based on selected ads.
+    foreach ($selected_ad_nids as $selected_nid) {
+      $existing_campaign_nids = [];
+      // Load the add based on $selected_nid.
+      $ad_node = \Drupal::entityTypeManager()->getStorage('node')->load($selected_nid);
+      // Check the existing campaign in the ad node $selected_nid.
+      $existing_related_campaigns = $ad_node->get('field_campaign')->referencedEntities();
+      foreach ($existing_related_campaigns as $existing_campaign) {
+        $existing_campaign_nids[] = $existing_campaign->id();
+      }
+      if (!in_array($current_nid, $existing_campaign_nids)) {
+        $ad_node->field_campaign[] = ['target_id' => $current_nid];
+        $ad_node->save();
+      }
+    }
+  }
+
+}
+
+/**
+ * Method to update ad reference for related_products based on their selection on add/edit.
+ */
+function example_ad_reference_updates_using_related_products($node, $node_oprtation = NULL) {
+  $current_product_nid = $node->id();
+  $selected_ads = $node->get('field_product_ad')->referencedEntities();
+  $selected_ad_nids = [];
+  $updated_product_nids = [];
+  foreach ($selected_ads as $reference) {
+    $selected_ad_nids[] = $reference->id();
+  }
+  if ($node_oprtation == "update") {
+
+    // Remove the reference of related_product from selected ads.
+    $original_selected_ads = $node->original->get('field_product_ad')->referencedEntities();
+    $original_selected_ad_nids = [];
+    foreach ($original_selected_ads as $original_reference) {
+      $original_selected_ad_nids[] = $original_reference->id();
+    }
+
+    // Get the new added and removed ads from SKU(related_products)
+    $new_added_ads = array_diff($selected_ad_nids, $original_selected_ad_nids);
+    $removed_ads = array_diff($original_selected_ad_nids, $selected_ad_nids);
+
+    // Remove SKU selections from the ad that are removed from the original ad selection from SKU ads.
+    if (isset($removed_ads) && !empty($removed_ads)) {
+      foreach ($removed_ads as $removed_nids) {
+        $original_ad_node = \Drupal::entityTypeManager()->getStorage('node')->load($removed_nids);
+        $original_existing_skus = $original_ad_node->get('field_related_products')->referencedEntities();
+        foreach ($original_existing_skus as $key => $original_sku) {
+          if ($original_sku->id() === $current_product_nid) {
+            $original_ad_node->get('field_related_products')->removeItem($key);
+            $original_ad_node->save();
+          }
+        }
+      }
+    }
+
+    // Add SKU selections for the ads that are selected from from SKU ads.
+    if (isset($new_added_ads) && !empty($new_added_ads)) {
+      foreach ($new_added_ads as $new_ad_nid) {
+        $existing_sku_nids = [];
+        // Load the add based on $selected_nid.
+        $new_ad_node = \Drupal::entityTypeManager()->getStorage('node')->load($new_ad_nid);
+        // Check the existing campaigns in the ad node $new_ad_nid.
+        $existing_related_skus = $new_ad_node->get('field_related_products')->referencedEntities();
+        foreach ($existing_related_skus as $existing_sku) {
+          $existing_sku_nids[] = $existing_sku->id();
+        }
+        if (!in_array($current_product_nid, $existing_sku_nids)) {
+          $new_ad_node->field_related_products[] = ['target_id' => $current_product_nid];
+          $new_ad_node->save();
+        }
+      }
+    }
+  }
+  else {
+    // Add the reference of related_product in selected ads.
+    foreach ($selected_ad_nids as $selected_nid) {
+      $existing_products_nids = [];
+      $ad_node = \Drupal::entityTypeManager()->getStorage('node')->load($selected_nid);
+      $existing_related_products = $ad_node->get('field_related_products')->referencedEntities();
+      foreach ($existing_related_products as $existing_products) {
+        $existing_products_nids[] = $existing_products->id();
+      }
+      if (!in_array($current_product_nid, $existing_products_nids)) {
+        $ad_node->field_related_products[] = ['target_id' => $current_product_nid];
+        $ad_node->save();
+      }
+    }
+  }
+}

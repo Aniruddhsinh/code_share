@@ -1,0 +1,32 @@
+services:
+  example.advertiser_contract:
+    class: Drupal\example\Services\AdvertiserContractServices
+    arguments: ['@entity_type.manager', '@current_user']
+  
+  example.ads_twig_extension:
+    class: Drupal\example\TwigExtension\ReferenceAdCountExtension
+    tags:
+      - { name: twig.extension } 
+    arguments:
+      - '@entity_type.manager'
+  
+  example.skus_twig_extension:
+    class: Drupal\example\TwigExtension\ReferenceSKUCountExtension
+    tags:
+      - { name: twig.extension } 
+    arguments:
+      - '@entity_type.manager'
+
+  example.skuscountwithad_twig_extension:
+    class: Drupal\example\TwigExtension\ReferenceSKUCountWithAdExtension
+    tags:
+      - { name: twig.extension } 
+    arguments:
+      - '@entity_type.manager'
+
+  example.campaigncountandtitle_twig_extension:
+    class: Drupal\example\TwigExtension\ReferenceCampaignListWithCountExtension
+    tags:
+      - { name: twig.extension } 
+    arguments:
+      - '@entity_type.manager'

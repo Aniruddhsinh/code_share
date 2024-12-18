@@ -1,0 +1,69 @@
+{#
+  /**
+   * @file
+   * Theme override for the Custom Form Example webform.
+   *
+   * Available variables:
+   * - form: The form array.
+   */
+#}
+{{ form.form_build_id }}
+{{ form.form_token }}
+{{ form.form_id }}
+<div class="add-campaign-link text-right">
+  <a href="/node/add/campaign" class="create-campaign-link btn btn-primary">Create</a>
+</div>
+<div class="custom-form advertiser-campaigns-list-form">
+    {% set campaign_ids  = form.campaign_ids['#value'] %}
+    
+    {% if campaign_ids %}
+    <div class="table-responsive">
+      <table id="table-sortable">
+        <tr>
+        <th class="content-center">Campaign ID</th>
+        <th>Campaign Name</th>
+        <th class="content-center">Status</th>
+        <th class="content-center">Allocation</th>
+        <th class="content-center">Ads</th>
+        <th class="content-center">SKUs</th>
+      </tr>
+      {% for campaign_id in campaign_ids %}
+        <tr>
+          <td class="content-center">{{ form.campaign_data[campaign_id]['campaign_id']['#markup'] }}</td>
+          <td><a href="/node/{{ form.campaign_data[campaign_id]['campaign_id']['#markup'] }}/edit" target="_blank" title="Opens in a new window">{{ form.campaign_data[campaign_id]['campaign_title']['#markup'] }}</a></td>
+          <td class="content-center">{{ form.campaign_data[campaign_id]['campaign_status']['#markup'] }}</td>
+          <td class="width-40 content-center"><div class="data-wrap">{{ form.campaign_data[campaign_id]['allocation'] }}</div></td>
+          <td class="content-center"><a href="/advertiser/ads?campaign={{ campaign_id }}">{{ cstv_ad_count(form.campaign_data[campaign_id]['campaign_ads']['#markup']) }}</a></td>
+          <td class="content-center"><a href="/advertiser/skus?campaign={{ campaign_id }}">{{ cstv_sku_count(form.campaign_data[campaign_id]['campaign_skus']['#markup']) }}</a></td>
+        </tr>
+      {% endfor %}
+      <tr class="campaign-total-row">
+        <td></td>
+        <td></td>
+      {% if form.total_ad_play['#value'] > 100 %}
+        {% set allotment = form.total_ad_play['#value'] - 100 %}
+        <td class="red total-text-column">{{ "Total exceeded by " ~ allotment ~ "% allotment" }}</td>
+        <td class="total-allocation"> {{ form.total_ad_play['#value'] }} %</td>
+      {% elseif form.total_ad_play['#value'] < 100 %}
+        {% set allotment = 100 - form.total_ad_play['#value'] %}
+        <td class="red total-text-column">{{ allotment ~ "% Remaining Allotment"  }}</td>
+        <td class="total-allocation"> {{ form.total_ad_play['#value'] }} %</td>
+      {% elseif form.total_ad_play['#value'] == 100 %}
+        <td class="green total-text-column">{{ "Total" }}</td>
+        <td class="total-allocation">{{ form.total_ad_play['#value'] }} %</td>
+      {% endif %}
+        <td>{{ form.total_ads['#value'] }}</td>
+        <td>{{ form.total_skus['#value'] }}</td>
+      </tr>
+      </table>
+    </div>
+    {% endif %}
+    {{ form.campaign_ids }}
+    {{ form.total_ads }}
+    {{ form.total_skus }}
+    {{ form.total_ad_play }}
+    {{ form.existing_allotment }}
+    {{ form.contracted_ad_slots }}
+    {{ form.submit }}
+    <div style="display:none;" class="exceed-content text-right">{{ 'Allocation exceeds the 100% limit. Please adjust before proceeding with the update.'|trans }}</div>
+</div>

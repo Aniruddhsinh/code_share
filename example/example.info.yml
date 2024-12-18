@@ -1,0 +1,7 @@
+name: Example Module Name
+description: Provide descrioption of the functionality the module supports
+package: Custom
+type: module
+core_version_requirement: ^8.8.0 || ^9 || ^10
+dependencies:
+  - node
